@@ -1,0 +1,9 @@
+numpy
+torch
+torchsummary
+torchvision
+sklearn
+tqdm
+python_speech_features
+tensorboard_logger
+librosa
