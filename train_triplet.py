@@ -85,10 +85,13 @@ parser.add_argument('--seed', type=int, default=0, metavar='S',
 parser.add_argument('--log-interval', type=int, default=1, metavar='LI',
                     help='how many batches to wait before logging training status')
 
-parser.add_argument('--mfb', action='store_true', default=True,
-                    help='start from MFB file')
+# parser.add_argument('--mfb', action='store_true', default=True,
+#                     help='start from MFB file')
 parser.add_argument('--makemfb', action='store_true', default=False,
                     help='need to make mfb file')
+parser.add_argument('--test-only', action='store_true', default=False,
+                    help='whether to skip training and do testing only')
+
 
 args = parser.parse_args()
 
@@ -118,40 +121,85 @@ logger = Logger(LOG_DIR)
 kwargs = {'num_workers': 0, 'pin_memory': True} if args.cuda else {}
 l2_dist = PairwiseDistance(2)
 
+print('==> Reading wav files')
+# voxceleb = read_voxceleb_structure(args.dataroot)
+# voxceleb_dev = [datum for datum in voxceleb if datum['subset']=='dev']
+# voxceleb_test = [datum for datum in voxceleb if datum['subset']=='test']
 
-voxceleb = read_voxceleb_structure(args.dataroot)
+voxceleb_dev, voxceleb_test = read_voxceleb_structure(args.dataroot)
+
+# generate_test_pair = not args.test_pairs_path
+# if generate_test_pair:
+#     args.test_pairs_path = os.path.join(args.dataroot, 'test_pairs.csv')
+# voxceleb = read_voxceleb_structure(args.dataroot, generate_test_pair=generate_test_pair)
+
 if args.makemfb:
     #pbar = tqdm(voxceleb)
-    for datum in voxceleb:
-        mk_MFB((args.dataroot +'/voxceleb1_wav/' + datum['filename']+'.wav'))
-    print("Complete convert")
+    print('==> Started converting wav to npy')
+    # for datum in tqdm(voxceleb):
+    #     mk_MFB(datum['file_path'])
+    #     # mk_MFB((args.dataroot +'/voxceleb1_wav/' + datum['filename']+'.wav'))
 
-if args.mfb:
-    transform = transforms.Compose([
-        truncatedinputfromMFB(),
-        totensor()
-    ])
-    transform_T = transforms.Compose([
-        truncatedinputfromMFB(input_per_file=args.test_input_per_file),
-        totensor()
-    ])
-    file_loader = read_MFB
-else:
-    transform = transforms.Compose([
-                        truncatedinput(),
-                        toMFB(),
-                        totensor(),
-                        #tonormal()
-                    ])
-    file_loader = read_audio
+    def parallel_function(f, sequence, num_threads=None):
+        from multiprocessing import Pool
+        pool = Pool(processes=num_threads)
+        result = pool.map(f, sequence)
+        cleaned = [x for x in result if x is not None]
+        pool.close()
+        pool.join()
+        return cleaned
+
+    MAX_THREAD_COUNT = 5
+    num_threads = min(MAX_THREAD_COUNT, os.cpu_count())
+    parallel_function(mk_MFB, [datum['file_path'] for datum in voxceleb_test], num_threads)
+    print('===> Converting test set is done')
+    if not args.test_only:
+        parallel_function(mk_MFB, [datum['file_path'] for datum in voxceleb_dev], num_threads)
+        print('===> Converting dev set is done')
+
+    print("==> Complete converting")
 
 
-voxceleb_dev = [datum for datum in voxceleb if datum['subset']=='dev']
-train_dir = DeepSpeakerDataset(voxceleb = voxceleb_dev, dir=args.dataroot,n_triplets=args.n_triplets,loader = file_loader,transform=transform)
-del voxceleb
+# if args.mfb:
+#     transform_train = transforms.Compose([
+#         truncatedinputfromMFB(),
+#         totensor()
+#     ])
+#     file_loader = read_MFB
+# else:
+#     transform_train = transforms.Compose([
+#                         truncatedinput(),
+#                         toMFB(),
+#                         totensor(),
+#                         #tonormal()
+#                     ])
+#     file_loader = read_audio
+
+transform_train = transforms.Compose([
+    truncatedinputfromMFB(),
+    totensor()
+])
+
+transform_test = transforms.Compose([
+    truncatedinputfromMFB(input_per_file=args.test_input_per_file),
+    totensor()
+])
+
+file_loader = read_MFB
+
+train_dir = DeepSpeakerDataset(voxceleb=voxceleb_dev,
+                               dir=args.dataroot,
+                               n_triplets=args.n_triplets,
+                               loader=file_loader,
+                               transform=transform_train)
+# del voxceleb
 del voxceleb_dev
+del voxceleb_test
 
-test_dir = VoxcelebTestset(dir=args.dataroot,pairs_path=args.test_pairs_path,loader = file_loader, transform=transform_T)
+test_dir = VoxcelebTestset(dir=args.dataroot,
+                           pairs_path=args.test_pairs_path,
+                           loader=file_loader,
+                           transform=transform_test)
 
 #qwer = test_dir.__getitem__(3)
 
@@ -165,11 +213,16 @@ def main():
     print('\nNumber of Classes:\n{}\n'.format(len(train_dir.classes)))
 
     # instantiate model and initialize weights
+    # TODO(xin): IMPORTANT load num_classes from checkpoint
     model = DeepSpeakerModel(embedding_size=args.embedding_size,
-                      num_classes=len(train_dir.classes))
+                             # num_classes=len(train_dir.classes))
+                             num_classes=5994)
 
     if args.cuda:
         model.cuda()
+
+    from torchsummary import summary
+    summary(model, (1, 64, 32))
 
     optimizer = create_optimizer(model, args.lr)
 
@@ -179,7 +232,6 @@ def main():
             print('=> loading checkpoint {}'.format(args.resume))
             checkpoint = torch.load(args.resume)
             args.start_epoch = checkpoint['epoch']
-            checkpoint = torch.load(args.resume)
             model.load_state_dict(checkpoint['state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
         else:
@@ -193,9 +245,12 @@ def main():
     test_loader = torch.utils.data.DataLoader(test_dir, batch_size=args.test_batch_size, shuffle=False, **kwargs)
     for epoch in range(start, end):
 
+        if args.test_only:
+            test(test_loader, model, epoch)
+            return
+
         train(train_loader, model, optimizer, epoch)
         test(test_loader, model, epoch)
-        #break;
 
 
 def train(train_loader, model, optimizer, epoch):
@@ -230,7 +285,8 @@ def train(train_loader, model, optimizer, epoch):
             if batch_idx % args.log_interval == 0:
                 pbar.set_description(
                     'Train Epoch: {:3d} [{:8d}/{:8d} ({:3.0f}%)]\tLoss: {:.6f}'.format(
-                        epoch, batch_idx * len(data_a), len(train_loader.dataset),
+                        # epoch, batch_idx * len(data_a), len(train_loader.dataset),
+                        epoch, batch_idx * len(data_a), len(train_loader) * len(data_a),
                         100. * batch_idx / len(train_loader),
                         loss.data[0]))
 
@@ -297,8 +353,9 @@ def train(train_loader, model, optimizer, epoch):
             logger.log_value('selected_total_loss', loss.data[0]).step()
             if batch_idx % args.log_interval == 0:
                 pbar.set_description(
-                    'Train Epoch: {:3d} [{:8d}/{:8d} ({:3.0f}%)]\tLoss: {:.6f} \t # of Selected Triplets: {:4d}'.format(
-                        epoch, batch_idx * len(data_a), len(train_loader.dataset),
+                    'Train Epoch: {:3d} [{:8d}/{:8d} ({:3.0f}%)]\tLoss: {:.6f} \t Number of Selected Triplets: {:4d}'.format(
+                        # epoch, batch_idx * len(data_a), len(train_loader.dataset),
+                        epoch, batch_idx * len(data_a), len(train_loader) * len(data_a),
                         100. * batch_idx / len(train_loader),
                         loss.data[0],len(hard_triplets[0])))
 
@@ -353,14 +410,15 @@ def test(test_loader, model, epoch):
 
         if batch_idx % args.log_interval == 0:
             pbar.set_description('Test Epoch: {} [{}/{} ({:.0f}%)]'.format(
-                epoch, batch_idx * len(data_a), len(test_loader.dataset),
+                # epoch, batch_idx * len(data_a), len(test_loader.dataset),
+                epoch, batch_idx * len(data_a), len(test_loader) * len(data_a),
                 100. * batch_idx / len(test_loader)))
 
     labels = np.array([sublabel for label in labels for sublabel in label])
     distances = np.array([subdist for dist in distances for subdist in dist])
 
-    #print("distance {.8f}".format(distances))
-    #print("distance {.1f}".format(labels))
+    # print(">>>>>>>>>>>>>> distance", distances)
+    # print(">>>>>>>>>>>>>> labels", labels)
     tpr, fpr, accuracy, val,  far = evaluate(distances,labels)
     print('\33[91mTest set: Accuracy: {:.8f}\n\33[0m'.format(np.mean(accuracy)))
     logger.log_value('Test Accuracy', np.mean(accuracy))

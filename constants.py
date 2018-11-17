@@ -1,5 +1,5 @@
-DATASET_DIR = './voxceleb'
-AUDIO_DIR = './voxceleb/voxceleb1_wav'
+# DATASET_DIR = './voxceleb'
+# AUDIO_DIR = './voxceleb/voxceleb1_wav'
 
 
 

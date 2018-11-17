@@ -13,24 +13,37 @@ def get_test_paths(pairs_path,db_dir,file_ext="wav"):
     issame_list = []
 
 
-    #pairs = random.sample(pairs, 100)
-    #for i in tqdm(range(len(pairs))):
-    for pair in pairs:
-        #pair = pairs[i]
-        if pair[0] == '1':
-            issame = True
-        else:
-            issame = False
-        path0 = db_dir +'/voxceleb1_wav/' + pair[1]
-        path1 = db_dir +'/voxceleb1_wav/' + pair[2]
+    # #pairs = random.sample(pairs, 100)
+    # #for i in tqdm(range(len(pairs))):
+    # for pair in pairs:
+    #     #pair = pairs[i]
+    #     # if pair[0] == '1':
+    #     #     issame = True
+    #     # else:
+    #     #     issame = False
+    #     # path0 = db_dir +'/voxceleb1_wav/' + pair[1]
+    #     # path1 = db_dir +'/voxceleb1_wav/' + pair[2]
 
+    for issame, path0, path1 in pairs:
+        issame = issame == '1'
+        path0 = os.path.join(db_dir, 'test', path0)
+        path1 = os.path.join(db_dir, 'test', path1)
+
+    # for line in open(pairs_path, 'r').readlines():
+    #     path0, path1 = line.strip().split(',')
+    #     issame = path0.split('/')[-3] == path1.split('/')[-3]
 
         if os.path.exists(path0) and os.path.exists(path1):    # Only add the pair if both paths exist
             path_list.append((path0,path1,issame))
             issame_list.append(issame)
         else:
+            # if not os.path.exists(path0):
+            #     print('==> Does not exist: {}'.format(path0))
+            # if not os.path.exists(path1):
+            #     print('==> Does not exist: {}'.format(path1))
             nrof_skipped_pairs += 1
-    if nrof_skipped_pairs>0:
+
+    if nrof_skipped_pairs > 0:
         print('Skipped %d image pairs' % nrof_skipped_pairs)
 
     return path_list

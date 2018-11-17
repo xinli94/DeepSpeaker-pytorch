@@ -4,9 +4,12 @@ from python_speech_features import fbank, delta
 import constants as c
 
 import librosa
-
+import os
 
 def mk_MFB(filename, sample_rate=c.SAMPLE_RATE,use_delta = c.USE_DELTA,use_scale = c.USE_SCALE,use_logscale = c.USE_LOGSCALE):
+    if os.path.exists(filename.replace('.wav', '.npy')):
+        return
+
     audio, sr = librosa.load(filename, sr=sample_rate, mono=True)
     #audio = audio.flatten()
 

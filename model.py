@@ -161,7 +161,8 @@ class DeepSpeakerModel(nn.Module):
 
         self.model = myResNet(BasicBlock, [1, 1, 1, 1])
         if feature_dim == 64:
-            self.model.fc = nn.Linear(512*4, self.embedding_size)
+            self.model.fc = nn.Linear(512*2, self.embedding_size)
+            # self.model.fc = nn.Linear(512*4, self.embedding_size)
         elif feature_dim == 40:
             self.model.fc = nn.Linear(256 * 5, self.embedding_size)
         self.model.classifier = nn.Linear(self.embedding_size, num_classes)
@@ -206,6 +207,7 @@ class DeepSpeakerModel(nn.Module):
 
         x = self.model.avgpool(x)
         x = x.view(x.size(0), -1)
+
         x = self.model.fc(x)
         self.features = self.l2_norm(x)
         # Multiply by alpha = 10 as suggested in https://arxiv.org/pdf/1703.09507.pdf

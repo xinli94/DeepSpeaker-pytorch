@@ -62,7 +62,8 @@ class DeepSpeakerDataset(data.Dataset):
         classes, class_to_idx = find_classes(voxceleb)
         features = []
         for vox_item in voxceleb:
-            item = (dir +'/voxceleb1_wav/' + vox_item['filename']+'.wav', class_to_idx[vox_item['speaker_id']])
+            item = (vox_item['file_path'], class_to_idx[vox_item['speaker_id']])
+            # item = (dir +'/voxceleb1_wav/' + vox_item['filename']+'.wav', class_to_idx[vox_item['speaker_id']])
             features.append(item)
 
         self.root = dir
